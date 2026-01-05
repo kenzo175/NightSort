@@ -1,6 +1,6 @@
 # 📦 NightSort — Paper Container Autosorter
 
-![Java](https://img.shields.io/badge/Java-17+-orange?style=for-the-badge&logo=openjdk)
+![Java](https://img.shields.io/badge/Java-21+-orange?style=for-the-badge&logo=openjdk)
 ![Platform](https://img.shields.io/badge/Platform-Paper-blue?style=for-the-badge&logo=paper)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
@@ -25,8 +25,8 @@
 
 | Requirement | Value |
 | :--- | :--- |
-| **Server Software** | Paper (or forks) 1.20.x / 1.21.x |
-| **Java Version** | Java 17 or higher |
+| **Server Software** | Paper (or forks) 1.20.6 / 1.21.x |
+| **Java Version** | Java 21 or higher |
 | **API Surface** | Paper-only (Uses native Paper-exclusive APIs) |
 
 ---
