@@ -1,0 +1,9 @@
+# colorizer: LEGACY or MINIMESSAGE
+# LEGACY: & and &#RRGGBB
+# MINIMESSAGE: default minimessage syntax and gradients
+colorizer: MINIMESSAGE
+
+only-player: "<red>This command is only available to players</red>"
+no-permission: "<red>You dont have permission to use this command</red>"
+enabled: "<green>Sorting is enabled for: <white>{inventories}</white></green>"
+disabled: "<red>Sorting is disabled</red>"
