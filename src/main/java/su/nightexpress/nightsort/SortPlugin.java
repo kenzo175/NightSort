@@ -49,6 +49,10 @@ public final class SortPlugin extends JavaPlugin {
         storage.load();
     }
 
+    public void reloadConfigSafe() {
+        reloadConfig();
+    }
+
     @Override
     public void onDisable() {
         storage.save();
