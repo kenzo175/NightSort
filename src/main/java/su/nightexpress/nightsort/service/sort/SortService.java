@@ -1,5 +1,6 @@
 package su.nightexpress.nightsort.service.sort;
 
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.HumanEntity;
@@ -12,10 +13,10 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 import su.nightexpress.nightsort.service.IDebounceService;
 import su.nightexpress.nightsort.service.ISortService;
+import su.nightexpress.nightsort.service.option.ConfigOptions;
 import su.nightexpress.nightsort.storage.IStorage;
 import su.nightexpress.nightsort.utils.InventoryTitleResolver;
 
-import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
@@ -28,39 +29,36 @@ public class SortService implements ISortService {
     private final IDebounceService debounce;
     private final IStorage storage;
 
-    private static final long IDLE_TICKS = 8L;
-    private static final int MAX_CONCURRENT_SORTS = 4;
-    private static final int MAX_RETRIES = 3;
-    private static final long RETRY_DELAY_TICKS = 2L;
-
-    private final Set<InventoryType> allowed = EnumSet.of(
-            InventoryType.CHEST,
-            InventoryType.BARREL,
-            InventoryType.ENDER_CHEST,
-            InventoryType.SHULKER_BOX
-    );
+    private volatile long idleTicks;
+    private volatile int maxConcurrentSorts;
+    private volatile int maxRetries;
+    private volatile long retryDelayTicks;
+    private volatile Set<InventoryType> allowed;
 
     private final Map<Material, Integer> materialIndex = new EnumMap<>(Material.class);
+
     private final Comparator<SnapshotEntry> snapshotComparator;
+
     private final ConcurrentMap<Integer, Integer> scheduledTaskIds = new ConcurrentHashMap<>();
-    private final Semaphore concurrencyLimiter = new Semaphore(MAX_CONCURRENT_SORTS);
+    private volatile Semaphore concurrencyLimiter;
     private final ConcurrentLinkedQueue<SnapshotJob> pendingQueue = new ConcurrentLinkedQueue<>();
+
     private final String inventoriesText;
 
-    private static final Method INVENTORYVIEW_GETTITLE;
+    private static final java.lang.reflect.Method INVENTORYVIEW_GETTITLE;
     private static final boolean INVENTORYVIEW_TITLE_IS_COMPONENT;
     static {
-        Method m = null;
+        java.lang.reflect.Method m = null;
         boolean comp = false;
         try {
             m = InventoryView.class.getMethod("getTitle");
-            comp = m.getReturnType().getName().contains("Component") || m.getReturnType().equals(net.kyori.adventure.text.Component.class);
+            comp = m.getReturnType().getName().contains("Component") || m.getReturnType().getName().contains("net.kyori.adventure.text.Component");
         } catch (NoSuchMethodException ignored) {}
         INVENTORYVIEW_GETTITLE = m;
         INVENTORYVIEW_TITLE_IS_COMPONENT = comp;
     }
 
-    public SortService(Plugin plugin, IDebounceService debounce, IStorage storage) {
+    public SortService(Plugin plugin, IDebounceService debounce, IStorage storage, ConfigOptions opts) {
         this.plugin = plugin;
         this.debounce = debounce;
         this.storage = storage;
@@ -74,11 +72,29 @@ public class SortService implements ISortService {
                 .thenComparing(e -> e.metaKey)
                 .thenComparingInt(e -> e.amount);
 
-        this.inventoriesText = allowed.stream()
+        this.inventoriesText = opts.allowedTypes.stream()
                 .map(InventoryTitleResolver::resolve)
                 .sorted()
                 .reduce((a, b) -> a + ", " + b)
                 .orElse("");
+
+        applyConfig(opts);
+    }
+
+    private synchronized void applyConfig(ConfigOptions opts) {
+        this.idleTicks = opts.idleTicks;
+        this.maxConcurrentSorts = opts.maxConcurrentSorts;
+        this.maxRetries = opts.maxRetries;
+        this.retryDelayTicks = opts.retryDelayTicks;
+        this.allowed = EnumSet.copyOf(opts.allowedTypes);
+
+        // recreate concurrency limiter
+        this.concurrencyLimiter = new Semaphore(this.maxConcurrentSorts);
+    }
+
+    public void updateConfig(ConfigOptions opts) {
+        applyConfig(opts);
+        plugin.getLogger().info("SortService config updated: idleTicks=" + idleTicks + " maxConcurrent=" + maxConcurrentSorts);
     }
 
     @Override
@@ -105,12 +121,7 @@ public class SortService implements ISortService {
             scheduledTaskIds.remove(invKey);
 
             InventoryView nowView = player.getOpenInventory();
-            if (nowView == null) {
-                debounce.finish(invKey);
-                return;
-            }
-            Inventory nowTop = nowView.getTopInventory();
-            if (nowTop != inv) {
+            if (nowView == null || nowView.getTopInventory() != inv) {
                 debounce.finish(invKey);
                 return;
             }
@@ -153,7 +164,7 @@ public class SortService implements ISortService {
             } else {
                 pendingQueue.offer(job);
             }
-        }, IDLE_TICKS).getTaskId();
+        }, idleTicks).getTaskId();
 
         scheduledTaskIds.put(invKey, taskId);
     }
@@ -167,17 +178,14 @@ public class SortService implements ISortService {
 
     private void startAsyncSort(SnapshotJob job) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                job.snapshots.sort(snapshotComparator);
-            } catch (Throwable t) {
-                plugin.getLogger().warning("Async sort failed: " + t.getMessage());
-            }
+            try { job.snapshots.sort(snapshotComparator); }
+            catch (Throwable t) { plugin.getLogger().warning("Async sort failed: " + t.getMessage()); }
             attemptApply(job, 0);
         });
     }
 
     private void attemptApply(SnapshotJob job, int attempt) {
-        long delay = (attempt == 0) ? 1L : RETRY_DELAY_TICKS;
+        long delay = (attempt == 0) ? 1L : retryDelayTicks;
 
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             try {
@@ -206,13 +214,13 @@ public class SortService implements ISortService {
 
                 ItemStack cursor = player.getItemOnCursor();
                 if (cursor != null && cursor.getType() != Material.AIR) {
-                    if (attempt < MAX_RETRIES) { attemptApply(job, attempt + 1); return; }
+                    if (attempt < maxRetries) { attemptApply(job, attempt + 1); return; }
                     else { finishJobAndDispatchNext(key); return; }
                 }
 
                 long currentHash = computeHashFromInventory(inv);
                 if (currentHash != job.snapshotHash) {
-                    if (attempt < MAX_RETRIES) { attemptApply(job, attempt + 1); return; }
+                    if (attempt < maxRetries) { attemptApply(job, attempt + 1); return; }
                     else { finishJobAndDispatchNext(key); return; }
                 }
 
@@ -228,7 +236,7 @@ public class SortService implements ISortService {
                     finishJobAndDispatchNext(key);
                     return;
                 } else {
-                    if (attempt < MAX_RETRIES) { attemptApply(job, attempt + 1); return; }
+                    if (attempt < maxRetries) { attemptApply(job, attempt + 1); return; }
                     else { finishJobAndDispatchNext(key); return; }
                 }
             } catch (Throwable t) {
@@ -254,10 +262,7 @@ public class SortService implements ISortService {
         final long prime = 0x100000001b3L;
         for (SnapshotEntry e : snaps) {
             long key = (((long) e.materialRank) << 32) ^ (e.metaKey.hashCode() & 0xffffffffL);
-            h ^= key;
-            h *= prime;
-            h ^= e.amount;
-            h *= prime;
+            h ^= key; h *= prime; h ^= e.amount; h *= prime;
         }
         return h;
     }
@@ -271,19 +276,14 @@ public class SortService implements ISortService {
             String metaStr = (meta != null) ? meta.getAsString() : "";
             int materialRank = materialIndex.getOrDefault(it.getType(), 0);
             long key = (((long) materialRank) << 32) ^ (metaStr.hashCode() & 0xffffffffL);
-            h ^= key;
-            h *= prime;
-            h ^= it.getAmount();
-            h *= prime;
+            h ^= key; h *= prime; h ^= it.getAmount(); h *= prime;
         }
         return h;
     }
 
     private Map<String, Integer> buildCountsFromSnapshots(Collection<SnapshotEntry> snaps) {
         Map<String, Integer> counts = new HashMap<>(Math.max(16, snaps.size() * 2));
-        for (SnapshotEntry e : snaps) {
-            counts.merge(e.countKey, e.amount, Integer::sum);
-        }
+        for (SnapshotEntry e : snaps) counts.merge(e.countKey, e.amount, Integer::sum);
         return counts;
     }
 
@@ -301,7 +301,11 @@ public class SortService implements ISortService {
 
     @Override
     public String getInventoriesText() {
-        return inventoriesText;
+        return allowed.stream()
+                .map(InventoryTitleResolver::resolve)
+                .sorted()
+                .reduce((a, b) -> a + ", " + b)
+                .orElse("");
     }
 
     private static final class SnapshotEntry {
