@@ -39,6 +39,11 @@ public class FileStorage implements IStorage {
     }
 
     @Override
+    public void setActive(UUID uuid, boolean active) {
+
+    }
+
+    @Override
     public void load() {
         try {
             if (!Files.exists(DATA_PATH)) return;

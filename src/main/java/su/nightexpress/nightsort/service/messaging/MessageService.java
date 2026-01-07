@@ -40,4 +40,9 @@ public class MessageService implements IMessageService {
     public String getRaw(String key) {
         return cfg.getString(key, "&cMissing message: " + key);
     }
+
+    @Override
+    public void reload() {
+
+    }
 }
