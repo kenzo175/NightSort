@@ -7,8 +7,8 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
 import su.nightexpress.nightsort.service.IMessageService;
-import su.nightexpress.nightsort.service.ISortService;
 import su.nightexpress.nightsort.storage.IStorage;
+import su.nightexpress.nightsort.service.ISortService;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -52,6 +52,7 @@ public final class CommandHandler implements TabExecutor {
             );
             player.sendMessage(comp);
         }
+
         storage.save();
 
         return Command.SINGLE_SUCCESS;
