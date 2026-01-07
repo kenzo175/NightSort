@@ -1,5 +1,5 @@
 name: NightSort
-version: "1.1.12"
+version: "1.1.13"
 main: su.nightexpress.nightsort.SortPlugin
 api-version: "1.21"
 description: Autosorting items plugin in containers
