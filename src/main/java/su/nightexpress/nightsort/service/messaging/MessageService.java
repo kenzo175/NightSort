@@ -13,25 +13,28 @@ import java.io.File;
 public class MessageService implements IMessageService {
 
     private final Plugin plugin;
-    private final FileConfiguration cfg;
+    private FileConfiguration cfg;
     private final LegacyComponentSerializer legacy = LegacyComponentSerializer.legacySection();
 
     public MessageService(Plugin plugin) {
         this.plugin = plugin;
+        loadMessages();
+    }
+
+    private void loadMessages() {
         File f = new File(plugin.getDataFolder(), "messages.yml");
         if (!f.exists()) {
             f.getParentFile().mkdirs();
             plugin.saveResource("messages.yml", false);
         }
         this.cfg = YamlConfiguration.loadConfiguration(f);
-
         String colorizer = cfg.getString("colorizer", "MINIMESSAGE");
         Colorizer.setColorizer(colorizer);
     }
 
     @Override
     public Component get(String key) {
-        String raw = getRaw(key);
+        String raw = cfg.getString(key, "&cMissing message: " + key);
         String colored = Colorizer.colorize(raw);
         return legacy.deserialize(colored);
     }
@@ -41,8 +44,7 @@ public class MessageService implements IMessageService {
         return cfg.getString(key, "&cMissing message: " + key);
     }
 
-    @Override
     public void reload() {
-
+        loadMessages();
     }
 }
