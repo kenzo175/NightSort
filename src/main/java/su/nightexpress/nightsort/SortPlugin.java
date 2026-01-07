@@ -8,6 +8,7 @@ import su.nightexpress.nightsort.listener.InventoryListener;
 import su.nightexpress.nightsort.service.*;
 import su.nightexpress.nightsort.service.messaging.DebounceService;
 import su.nightexpress.nightsort.service.messaging.MessageService;
+import su.nightexpress.nightsort.service.option.ConfigOptions;
 import su.nightexpress.nightsort.service.sort.SortService;
 import su.nightexpress.nightsort.storage.FileStorage;
 import su.nightexpress.nightsort.storage.IStorage;
